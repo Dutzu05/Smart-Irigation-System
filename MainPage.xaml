@@ -1,0 +1,85 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SimpleMauiApp.MainPage">
+    <ScrollView>
+        <VerticalStackLayout
+            Spacing="25"
+            Padding="30,0"
+            VerticalOptions="Center">
+            <Image
+                Source="dotnet_bot.png"
+                SemanticProperties.Description="dot net bot logo"
+                HeightRequest="200"
+                HorizontalOptions="Center" />
+            <Label
+                x:Name="Plant1MoistureLabel"
+                Text="Plant 1 Moisture: Waiting for data..."
+                SemanticProperties.HeadingLevel="Level1"
+                FontSize="24"
+                HorizontalOptions="Center" />
+            <Label
+                x:Name="Plant2MoistureLabel"
+                Text="Plant 2 Moisture: Waiting for data..."
+                SemanticProperties.HeadingLevel="Level1"
+                FontSize="24"
+                HorizontalOptions="Center" />
+            <Label
+                x:Name="Plant3MoistureLabel"
+                Text="Plant 3 Moisture: Waiting for data..."
+                SemanticProperties.HeadingLevel="Level1"
+                FontSize="24"
+                HorizontalOptions="Center" />
+            <Label
+                x:Name="StatusLabel"
+                Text="Status: Waiting..."
+                FontSize="18"
+                HorizontalOptions="Center" />
+            <Entry
+                x:Name="IpEntry"
+                Text="http://192.168.43.230"
+                Placeholder="Enter ESP32 IP (e.g., http://192.168.43.230)"
+                FontSize="16"
+                HorizontalOptions="Center" />
+            <Button
+                x:Name="UpdateIpButton"
+                Text="Update IP Address"
+                FontSize="18"
+                Clicked="OnUpdateIpClicked"
+                HorizontalOptions="Center" />
+            <Button
+                x:Name="TestNetworkButton"
+                Text="Test Network Connection"
+                FontSize="18"
+                Clicked="OnTestNetworkClicked"
+                HorizontalOptions="Center" />
+            <Button
+                x:Name="Plant1Button"
+                Text="Hold to Water Plant 1"
+                FontSize="18"
+                Pressed="OnPlant1Pressed"
+                Released="OnPlant1Released"
+                HorizontalOptions="Center" />
+            <Button
+                x:Name="Plant2Button"
+                Text="Hold to Water Plant 2"
+                FontSize="18"
+                Pressed="OnPlant2Pressed"
+                Released="OnPlant2Released"
+                HorizontalOptions="Center" />
+            <Button
+                x:Name="Plant3Button"
+                Text="Hold to Water Plant 3"
+                FontSize="18"
+                Pressed="OnPlant3Pressed"
+                Released="OnPlant3Released"
+                HorizontalOptions="Center" />
+            <Button
+                x:Name="TestNotificationButton"
+                Text="Test Notification"
+                FontSize="18"
+                Clicked="OnTestNotificationClicked"
+                HorizontalOptions="Center" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
