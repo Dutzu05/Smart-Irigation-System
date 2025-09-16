@@ -2,190 +2,184 @@
 #include <WebServer.h>
 #include <ArduinoJson.h>
 
-const char* ssid = "ESP32Test"; // Your phone's hotspot SSID
-const char* password = "12345678"; // Your phone's hotspot password
-const int sensorPin = 34; // GPIO 34 (ADC1)
-const int relayPin = 32;
-const int airValue = 3500; // Update after calibration
-const int waterValue = 1500; // Update after calibration
-const int threshold = 30;
-const unsigned long checkInterval = 5000;
+// WiFi credentials
+const char* ssid = "ESP32Test"; // Replace with your WiFi network SSID
+const char* password = "12345678"; // Replace with your WiFi network password
+
+// Sensor pins
+const int sensorPins[3] = {15, 5, 18}; // Plant 1, Plant 2, Plant 3
+
+// Valve pins
+const int valvePins[3] = {19, 21, 22};
+
+// Pump pin
+const int pumpPin = 23;
+
+// Calibration values for sensors (adjust based on your sensor's raw readings)
+const int airValue = 3500; // Analog reading in air (dry); typically high (e.g., 3500–4095)
+const int waterValue = 1500; // Analog reading in water (wet); typically low (e.g., 1000–1500)
+
+// Timing
+const unsigned long checkInterval = 20000; // 20 seconds
+unsigned long lastCheck = 0;
+
+// Moisture readings
+int moistureValues[3] = {0, 0, 0};
+
+// State tracking
+bool pumpRunning = false;
+bool valvesRunning[3] = {false, false, false};
 
 WebServer server(80);
-unsigned long lastCheck = 0;
-int currentMoisture = 0;
-bool isDry = false;
-bool pumpRunning = false;
+
+// Read moisture and convert to percentage
+int readMoisture(int analogValue) {
+  // Map higher analog values (dry) to 0% and lower values (wet) to 100%
+  int percent = map(analogValue, airValue, waterValue, 0, 100);
+  // Ensure percentage stays within 0–100
+  if (percent < 0) percent = 0;
+  if (percent > 100) percent = 100;
+  return percent;
+}
 
 void handleStatus() {
-  StaticJsonDocument<200> doc;
-  doc["moisture"] = currentMoisture;
-  doc["dry"] = isDry;
+  StaticJsonDocument<300> doc;
+  JsonArray moistureArray = doc.createNestedArray("moisture");
+  for (int i = 0; i < 3; i++) {
+    moistureArray.add(moistureValues[i]);
+  }
   doc["pumpRunning"] = pumpRunning;
+  JsonArray valvesArray = doc.createNestedArray("valvesRunning");
+  for (int i = 0; i < 3; i++) {
+    valvesArray.add(valvesRunning[i]);
+  }
   String response;
   serializeJson(doc, response);
   server.send(200, "application/json", response);
   Serial.println("Served /status request");
 }
 
-void handlePumpOn() {
-  digitalWrite(relayPin, HIGH); // Use LOW if relay is active-low
+void startWatering(int plantIndex) {
+  if (plantIndex < 0 || plantIndex > 2) return;
+  digitalWrite(valvePins[plantIndex], HIGH);
+  valvesRunning[plantIndex] = true;
+  digitalWrite(pumpPin, HIGH);
   pumpRunning = true;
-  server.send(200, "text/plain", "Pump turned ON by user");
-  Serial.println("Pump manually turned on");
+  Serial.printf("Started watering plant %d, Valve pin %d set HIGH, Pump pin %d set HIGH\n", 
+                plantIndex + 1, valvePins[plantIndex], pumpPin);
 }
 
-void handlePumpOff() {
-  digitalWrite(relayPin, LOW); // Use HIGH if relay is active-low
-  pumpRunning = false;
-  server.send(200, "text/plain", "Pump turned OFF by user");
-  Serial.println("Pump manually turned off");
-}
-
-void calibrateSensor() {
-  Serial.println("Calibration Mode: Place sensor in AIR (dry)...");
-  for (int i = 0; i < 5; i++) {
-    int raw = 0;
-    const int numReadings = 5;
-    for (int j = 0; j < numReadings; j++) {
-      raw += analogRead(sensorPin);
-      delay(10);
+void stopWatering(int plantIndex) {
+  if (plantIndex < 0 || plantIndex > 2) return;
+  digitalWrite(valvePins[plantIndex], LOW);
+  valvesRunning[plantIndex] = false;
+  bool anyValveOpen = false;
+  for (int i = 0; i < 3; i++) {
+    if (valvesRunning[i]) {
+      anyValveOpen = true;
+      break;
     }
-    raw /= numReadings;
-    float voltage = (raw / 4095.0) * 3.3;
-    Serial.print("Raw value (air): ");
-    Serial.print(raw);
-    Serial.print(" | Voltage: ");
-    Serial.print(voltage, 2);
-    Serial.println("V");
-    delay(1000);
   }
-  Serial.println("Now place sensor in WATER...");
-  for (int i = 0; i < 5; i++) {
-    int raw = 0;
-    const int numReadings = 5;
-    for (int j = 0; j < numReadings; j++) {
-      raw += analogRead(sensorPin);
-      delay(10);
-    }
-    raw /= numReadings;
-    float voltage = (raw / 4095.0) * 3.3;
-    Serial.print("Raw value (water): ");
-    Serial.print(raw);
-    Serial.print(" | Voltage: ");
-    Serial.print(voltage, 2);
-    Serial.println("V");
-    delay(1000);
+  if (!anyValveOpen) {
+    digitalWrite(pumpPin, LOW);
+    pumpRunning = false;
+    Serial.printf("All valves closed, Pump pin %d set LOW\n", pumpPin);
   }
-  Serial.println("Calibration complete. Update airValue and waterValue.");
+  Serial.printf("Stopped watering plant %d, Valve pin %d set LOW\n", 
+                plantIndex + 1, valvePins[plantIndex]);
 }
 
-void testADC() {
-  Serial.println("Testing ADC on GPIO 34...");
-  for (int i = 0; i < 5; i++) {
-    int raw = analogRead(sensorPin);
-    float voltage = (raw / 4095.0) * 3.3;
-    Serial.print("Test raw value: ");
-    Serial.print(raw);
-    Serial.print(" | Voltage: ");
-    Serial.print(voltage, 2);
-    Serial.println("V");
-    delay(1000);
-  }
-}
+void handleValve1On() { startWatering(0); server.send(200, "text/plain", "Valve 1 + Pump ON"); }
+void handleValve1Off() { stopWatering(0); server.send(200, "text/plain", "Valve 1 + Pump OFF"); }
+void handleValve2On() { startWatering(1); server.send(200, "text/plain", "Valve 2 + Pump ON"); }
+void handleValve2Off() { stopWatering(1); server.send(200, "text/plain", "Valve 2 + Pump OFF"); }
+void handleValve3On() { startWatering(2); server.send(200, "text/plain", "Valve 3 + Pump ON"); }
+void handleValve3Off() { stopWatering(2); server.send(200, "text/plain", "Valve 3 + Pump OFF"); }
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
-  Serial.println("ESP32 Booting...");
 
-  pinMode(relayPin, OUTPUT);
-  digitalWrite(relayPin, LOW);
-  pinMode(sensorPin, INPUT);
-
-  analogReadResolution(12);
-  analogSetAttenuation(ADC_11db);
-
-  Serial.println("Initial sensor reading...");
-  int initialRaw = analogRead(sensorPin);
-  float initialVoltage = (initialRaw / 4095.0) * 3.3;
-  Serial.print("Raw value: ");
-  Serial.print(initialRaw);
-  Serial.print(" | Voltage: ");
-  Serial.print(initialVoltage, 2);
-  Serial.println("V");
-  if (initialRaw == 0) {
-    Serial.println("WARNING: Sensor reading 0. Check wiring or sensor.");
-  }
-
-  // Connect to phone's hotspot
+  // Attempt to connect to WiFi network
   Serial.println("Connecting to WiFi...");
-  WiFi.mode(WIFI_STA); // Station mode
   WiFi.begin(ssid, password);
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+
+  // Wait for connection with a 10-second timeout
+  unsigned long startAttemptTime = millis();
+  const unsigned long timeout = 10000; // 10 seconds
+
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < timeout) {
     delay(500);
     Serial.print(".");
-    attempts++;
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi connected");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-  } else {
-    Serial.println("\nFailed to connect to WiFi. Restarting...");
-    ESP.restart();
   }
 
+  // Check connection status
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi Connected");
+    Serial.print("Use this IP in MAUI app: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nWiFi Connection Failed. Check SSID/password or network availability.");
+    return; // Skip server setup if no connection
+  }
+
+  // Setup pins
+  for (int i = 0; i < 3; i++) {
+    pinMode(sensorPins[i], INPUT);
+    pinMode(valvePins[i], OUTPUT);
+    digitalWrite(valvePins[i], LOW);
+  }
+  pinMode(pumpPin, OUTPUT);
+  digitalWrite(pumpPin, LOW);
+
+  // Test pump pin
+  Serial.println("Testing pump pin...");
+  digitalWrite(pumpPin, HIGH);
+  Serial.printf("Pump pin %d set HIGH for 2 seconds\n", pumpPin);
+  delay(2000); // Hold HIGH for 2 seconds
+  digitalWrite(pumpPin, LOW);
+  Serial.printf("Pump pin %d set LOW\n", pumpPin);
+
+  // Test sensors by reading raw values
+  Serial.println("Initial sensor readings (raw analog values):");
+  for (int i = 0; i < 3; i++) {
+    int analogVal = analogRead(sensorPins[i]);
+    Serial.printf("Plant %d sensor raw value: %d\n", i + 1, analogVal);
+  }
+
+  // Web server routes
   server.on("/status", handleStatus);
-  server.on("/pump/on", handlePumpOn);
-  server.on("/pump/off", handlePumpOff);
-  server.onNotFound([]() {
-    server.send(404, "text/plain", "Not Found");
-    Serial.println("Served 404 request");
-  });
+  server.on("/valve1on", handleValve1On);
+  server.on("/valve1off", handleValve1Off);
+  server.on("/valve2on", handleValve2On);
+  server.on("/valve2off", handleValve2Off);
+  server.on("/valve3on", handleValve3On);
+  server.on("/valve3off", handleValve3Off);
+
   server.begin();
   Serial.println("Web server started");
 }
 
 void loop() {
-  server.handleClient();
-
-  if (millis() % 10000 == 0) {
-    Serial.print("Server running. IP Address: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("WiFi Status: ");
-    Serial.println(WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected");
+  // Only handle client requests if WiFi is connected
+  if (WiFi.status() == WL_CONNECTED) {
+    server.handleClient();
+  } else {
+    Serial.println("WiFi disconnected. Attempting to reconnect...");
+    WiFi.reconnect();
+    delay(5000);
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.print("Reconnected. Use this IP in MAUI app: ");
+      Serial.println(WiFi.localIP());
+    }
   }
 
   unsigned long now = millis();
   if (now - lastCheck >= checkInterval) {
-    int rawValue = 0;
-    const int numReadings = 5;
-    for (int i = 0; i < numReadings; i++) {
-      rawValue += analogRead(sensorPin);
-      delay(10);
-    }
-    rawValue /= numReadings;
-    float voltage = (rawValue / 4095.0) * 3.3;
-
-    if (rawValue == 0) {
-      Serial.println("Error: Sensor reading 0. Check wiring or sensor.");
-    } else if (rawValue < 0 || rawValue > 4095) {
-      Serial.println("Error: Invalid sensor reading");
-    } else {
-      currentMoisture = map(rawValue, airValue, waterValue, 0, 100);
-      currentMoisture = constrain(currentMoisture, 0, 100);
-      isDry = currentMoisture < threshold;
-
-      Serial.print("Raw value: ");
-      Serial.print(rawValue);
-      Serial.print(" | Voltage: ");
-      Serial.print(voltage, 2);
-      Serial.print("V | Moisture: ");
-      Serial.print(currentMoisture);
-      Serial.println("%");
-    }
     lastCheck = now;
+    for (int i = 0; i < 3; i++) {
+      int analogVal = analogRead(sensorPins[i]);
+      moistureValues[i] = readMoisture(analogVal);
+      Serial.printf("Plant %d sensor raw value: %d, Moisture: %d%%\n", i + 1, analogVal, moistureValues[i]);
+    }
   }
 }
